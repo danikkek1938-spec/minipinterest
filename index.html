@@ -1,31 +1,168 @@
-<script>
-  // ... весь твой код без изменений до строки с поиском ...
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniPinterest — локальный пинборд</title>
+  <style>
+    /* Стили оставлены без изменений */
+  </style>
+</head>
+<body>
+  <!-- Разметка оставлена без изменений -->
 
-  async function addPinFromKeyword(keyword){
-    try{
-      const directUrl = `https://source.unsplash.com/800x600/?${encodeURIComponent(keyword)}`;
-      const id = uid();
-      const dim = await probeImage(directUrl);
-      pins.unshift({id, src:directUrl, title:keyword, w:dim.w, h:dim.h});
-      save(); render();
-    }catch(e){ alert('Не удалось загрузить изображение по запросу'); console.error(e); }
-  }
+  <script>
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+    const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const storeKey = 'mini-pins-v1';
 
-  // модифицируем кнопку "Добавить по ссылке"
-  $('#addUrl').addEventListener('click', ()=>{
-    const u = $('#imgUrl').value.trim(); 
-    const t = $('#imgTitle').value.trim();
-    if(!u && t){ 
-      // если ссылки нет, но есть название — ищем по названию
-      addPinFromKeyword(t); 
-      $('#imgTitle').value='';
-      return;
+    let pins = [];
+
+    function save(){ localStorage.setItem(storeKey, JSON.stringify(pins)); }
+    function load(){ try{ pins = JSON.parse(localStorage.getItem(storeKey)||'[]')||[] }catch{ pins=[] } }
+
+    function setEmptyState(){ $('#empty').hidden = pins.length !== 0 }
+
+    function pinTemplate(pin){
+      const card = document.createElement('article');
+      card.className = 'card'; card.dataset.id = pin.id;
+      const wrap = document.createElement('div'); wrap.className='thumb';
+      const img = document.createElement('img');
+      img.alt = pin.title || 'Изображение';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.dataset.src = pin.src;
+      wrap.appendChild(img);
+
+      const actions = document.createElement('div'); actions.className='actions';
+      const like = document.createElement('button'); like.className='pill like' + (pin.liked?' active':''); like.textContent = pin.liked? 'Нравится':'Лайк';
+      like.addEventListener('click', (e)=>{ e.stopPropagation(); pin.liked=!pin.liked; like.classList.toggle('active', pin.liked); like.textContent = pin.liked? 'Нравится':'Лайк'; save(); });
+      const del = document.createElement('button'); del.className='pill'; del.textContent='Удалить';
+      del.addEventListener('click', (e)=>{ e.stopPropagation(); removePin(pin.id) });
+      actions.append(like, del); wrap.appendChild(actions);
+
+      wrap.addEventListener('click', ()=> openViewer(pin));
+
+      const meta = document.createElement('div'); meta.className='meta';
+      const title = document.createElement('div'); title.textContent = pin.title || 'Без подписи';
+      const dim = document.createElement('div'); dim.textContent = pin.w && pin.h ? `${pin.w}×${pin.h}` : '';
+      meta.append(title, dim);
+
+      card.append(wrap, meta);
+      return card;
     }
-    if(!u) return alert('Вставьте ссылку на картинку или введите название');
-    addPinFromURL(u, t); 
-    $('#imgUrl').value=''; 
-    $('#imgTitle').value='';
-  });
 
-  // ... весь твой код без изменений ...
-</script>
+    function render(list=pins){
+      const grid = $('#grid');
+      grid.innerHTML = '';
+      list.forEach(p => grid.appendChild(pinTemplate(p)));
+      lazyImages();
+      setEmptyState();
+    }
+
+    function lazyImages(){
+      const imgs = $$('img[data-src]');
+      const io = new IntersectionObserver((entries,obs)=>{
+        entries.forEach(en=>{
+          if(en.isIntersecting){ const img=en.target; img.src = img.dataset.src; img.removeAttribute('data-src'); obs.unobserve(img); }
+        })
+      },{rootMargin:'200px'});
+      imgs.forEach(img=>io.observe(img));
+    }
+
+    function removePin(id){ pins = pins.filter(p=>p.id!==id); save(); render(); }
+
+    async function addPinFromURL(url, title=''){
+      try{
+        const directUrl = transformGoogleDriveUrl(url);
+        const id = uid();
+        const dim = await probeImage(directUrl);
+        pins.unshift({id, src:directUrl, title, w:dim.w, h:dim.h});
+        save(); render();
+      }catch(e){ alert('Не удалось загрузить изображение. Проверьте ссылку.'); console.error(e); }
+    }
+
+    function transformGoogleDriveUrl(url){
+      const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if(match){
+        return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+      }
+      return url;
+    }
+
+    function addPinsFromFiles(files){
+      [...files].forEach(file=>{
+        const reader = new FileReader();
+        reader.onload = async e => {
+          const src = e.target.result;
+          const id = uid();
+          const dim = await probeImage(src);
+          pins.unshift({id, src, title:file.name.replace(/\.[^.]+$/, ''), w:dim.w, h:dim.h});
+          save(); render();
+        };
+        reader.readAsDataURL(file);
+      })
+    }
+
+    function probeImage(src){
+      return new Promise((res, rej)=>{
+        const i = new Image();
+        i.onload = () => res({w:i.naturalWidth, h:i.naturalHeight});
+        i.onerror = rej; i.src = src;
+      })
+    }
+
+    const viewer = $('#viewer'); const viewerImg = $('#viewerImg'); let currentPin = null;
+    function openViewer(pin){ currentPin = pin; viewerImg.src = pin.src; viewer.showModal(); }
+    $('#closeBtn').addEventListener('click', ()=> viewer.close());
+    $('#downloadBtn').addEventListener('click', ()=> {
+      const a = document.createElement('a'); a.href = viewerImg.src; a.download = (currentPin?.title||'image')+'.jpg'; a.click();
+    });
+    $('#copyBtn').addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText(viewerImg.src); alert('Ссылка скопирована'); }catch{ alert('Не удалось скопировать'); }
+    })
+
+    const q = $('#q');
+    function doSearch(){
+      const s = q.value.trim().toLowerCase();
+      if(!s) return render();
+      const list = pins.filter(p=> (p.title||'').toLowerCase().includes(s));
+      render(list);
+    }
+    q.addEventListener('input', doSearch);
+    window.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey)&& e.key.toLowerCase()==='k'){ e.preventDefault(); q.focus(); }});
+
+    $('#addUrl').addEventListener('click', ()=>{
+      const u = $('#imgUrl').value.trim(); const t = $('#imgTitle').value.trim();
+      if(!u) return alert('Вставьте ссылку на картинку');
+      addPinFromURL(u, t); $('#imgUrl').value=''; $('#imgTitle').value='';
+    });
+    $('.upload').addEventListener('click', ()=> $('#fileInput').click());
+    $('#fileInput').addEventListener('change', (e)=> addPinsFromFiles(e.target.files));
+
+    const form = $('#add-form');
+    ;['dragenter','dragover'].forEach(ev=> form.addEventListener(ev, e=>{ e.preventDefault(); form.style.outline='2px dashed #3a4556'; }));
+    ;['dragleave','drop'].forEach(ev=> form.addEventListener(ev, e=>{ e.preventDefault(); form.style.outline='none'; }));
+    form.addEventListener('drop', (e)=>{ addPinsFromFiles(e.dataTransfer.files) });
+
+    $('#exportBtn').addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(pins,null,2)], {type:'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mypins.json'; a.click();
+    });
+    $('#importBtn').addEventListener('click', ()=>{
+      const input = document.createElement('input'); input.type='file'; input.accept='application/json';
+      input.onchange = () => {
+        const f = input.files[0]; if(!f) return;
+        const r = new FileReader(); r.onload = () => {
+          try{ const data = JSON.parse(r.result); if(Array.isArray(data)){ pins = data; save(); render(); } else alert('Формат файла не распознан'); }
+          catch{ alert('Не удалось прочитать JSON'); }
+        }; r.readAsText(f);
+      };
+      input.click();
+    });
+
+    load(); render();
+  </script>
+</body>
+</html>
