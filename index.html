@@ -20,7 +20,6 @@
     .controls {
       display: flex;
       justify-content: center;
-      flex-wrap: wrap;
       padding: 10px;
       gap: 10px;
       background: #111;
@@ -30,7 +29,7 @@
       border: none;
       border-radius: 5px;
     }
-    .controls input[type="text"] {
+    .controls input {
       width: 250px;
     }
     .controls button {
@@ -70,70 +69,39 @@
   <div class="controls">
     <input id="imageUrl" type="text" placeholder="Ссылка на картинку или Google Disk">
     <input id="desc" type="text" placeholder="Описание">
-    <input id="fileInput" type="file" accept="image/*">
     <button onclick="addPin()">Добавить</button>
   </div>
   <div class="grid" id="grid"></div>
 
   <script>
-    // Конвертация Google Drive ссылки
     function convertGoogleDriveLink(url) {
       const match = url.match(/\/d\/(.*?)\//);
       if (match && match[1]) {
         return `https://drive.google.com/uc?export=view&id=${match[1]}`;
       }
-      return url;
+      return url; // если не Google Drive — вернуть как есть
     }
 
-    // Загрузка сохранённых пинов из localStorage
-    function loadPins() {
-      const saved = JSON.parse(localStorage.getItem("pins")) || [];
-      const grid = document.getElementById("grid");
-      grid.innerHTML = "";
-      saved.forEach(pin => {
-        const div = document.createElement("div");
-        div.className = "pin";
-        div.innerHTML = `<img src="${pin.url}" alt="pin"><p>${pin.desc}</p>`;
-        grid.appendChild(div);
-      });
-    }
-
-    // Сохранение пинов в localStorage
-    function savePin(url, desc) {
-      const saved = JSON.parse(localStorage.getItem("pins")) || [];
-      saved.push({ url, desc });
-      localStorage.setItem("pins", JSON.stringify(saved));
-    }
-
-    // Добавление нового пина
     function addPin() {
       const urlInput = document.getElementById('imageUrl');
       const descInput = document.getElementById('desc');
-      const fileInput = document.getElementById('fileInput');
       let url = urlInput.value.trim();
       const desc = descInput.value.trim();
 
-      if (fileInput.files.length > 0) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          const imageUrl = e.target.result;
-          savePin(imageUrl, desc);
-          loadPins();
-        }
-        reader.readAsDataURL(fileInput.files[0]);
-        fileInput.value = "";
-      } else if (url) {
-        url = convertGoogleDriveLink(url);
-        savePin(url, desc);
-        loadPins();
-      }
+      if (!url) return;
+
+      // Автоматическая конвертация Google Drive ссылок
+      url = convertGoogleDriveLink(url);
+
+      const grid = document.getElementById('grid');
+      const pin = document.createElement('div');
+      pin.className = 'pin';
+      pin.innerHTML = `<img src="${url}" alt="pin"><p>${desc}</p>`;
+      grid.appendChild(pin);
 
       urlInput.value = '';
       descInput.value = '';
     }
-
-    // Загружаем пины при старте
-    loadPins();
   </script>
 </body>
 </html>
