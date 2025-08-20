@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MiniPinterest — локальный пинборд</title>
+  <style>
+    :root{
+      --bg:#0f1216; --panel:#171b21; --muted:#9aa4b2; --text:#e6edf3; --accent:#7c91ff; --accent-2:#61d6a7;
+      --gap:16px; --radius:16px; --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font:16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background:linear-gradient(160deg,#0e1116,#0b0d11 40%, #0e1116 100%);
+      color:var(--text);
+    }
+    header{
+      position:sticky; top:0; z-index:5; backdrop-filter:saturate(140%) blur(10px);
+      background:color-mix(in oklab, var(--panel) 70%, transparent);
+      border-bottom:1px solid #232a33;
+    }
+    .wrap{max-width:1200px; margin:0 auto; padding:14px var(--gap);}
+    .bar{display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap}
+    .logo{display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:.2px}
+    .logo .dot{width:12px; height:12px; border-radius:50%; background:linear-gradient(135deg,var(--accent),#b07cff)}
+
+    .search{flex:1; min-width:240px; position:relative}
+    .search input{
+      width:100%; padding:12px 40px 12px 14px; border-radius:999px; border:1px solid #28303a; background:#0f1318; color:var(--text);
+      outline:none; box-shadow:inset 0 0 0 1px transparent; transition:.2s;
+    }
+    .search input:focus{box-shadow:inset 0 0 0 1px var(--accent)}
+    .search .hint{position:absolute; right:10px; top:50%; translate:0 -50%; font-size:12px; color:var(--muted)}
+
+    .btn{appearance:none; border:1px solid #2a3240; background:#12171d; color:var(--text); padding:10px 14px; border-radius:12px; cursor:pointer; transition:.2s; box-shadow:none}
+    .btn:hover{border-color:#3a4556; transform:translateY(-1px)}
+    .btn.primary{background:linear-gradient(180deg,#2b3350,#232a44); border-color:#3b4770}
+
+    .panel{margin:14px auto 0; padding:14px; background:var(--panel); border:1px solid #222a33; border-radius:var(--radius); box-shadow:var(--shadow)}
+    .panel .row{display:flex; gap:var(--gap); flex-wrap:wrap}
+    .panel input[type="url"], .panel input[type="text"]{
+      flex:1; min-width:220px; padding:10px 12px; border-radius:10px; border:1px solid #2a3240; background:#0f1318; color:var(--text)
+    }
+    .panel label.upload{
+      border:2px dashed #2a3240; border-radius:12px; padding:10px 12px; cursor:pointer; color:var(--muted); display:flex; align-items:center; gap:8px
+    }
+
+    /* Masonry */
+    .masonry{column-width: 260px; column-gap: var(--gap); padding: var(--gap)}
+    @media (max-width:720px){.masonry{column-width: 180px}}
+    .card{display:inline-block; width:100%; margin:0 0 var(--gap); break-inside:avoid; position:relative}
+    .card .thumb{position:relative; overflow:hidden; border-radius:14px; background:#0b0e12; border:1px solid #232a33}
+    .card img{width:100%; height:auto; display:block; transition:transform .25s ease;}
+    .card:hover img{transform:scale(1.03)}
+    .card .actions{position:absolute; inset:auto 8px 8px auto; display:flex; gap:8px}
+    .pill{padding:6px 10px; border-radius:999px; border:1px solid #2a3240; background:rgba(18,23,29,.85); color:#fff; font-size:12px; cursor:pointer}
+    .pill.like.active{background:rgba(124,145,255,.25); border-color:#6c7be0}
+    .meta{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 4px 2px 4px; color:var(--muted); font-size:12px}
+
+    /* Modal */
+    dialog{border:none; border-radius:18px; padding:0; background:#0b0f14; color:var(--text); width:min(92vw, 980px)}
+    dialog::backdrop{background:rgba(0,0,0,.6); backdrop-filter: blur(2px)}
+    .lightbox{position:relative}
+    .lightbox img{width:100%; height:auto; display:block; border-radius:18px}
+    .lightbox .lb-bar{position:absolute; inset:auto 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end}
+    .icon-btn{border:1px solid #2a3240; background:rgba(18,23,29,.9); padding:10px 12px; border-radius:12px; cursor:pointer}
+
+    .empty{opacity:.7; text-align:center; padding:40px 10px}
+    .empty b{color:#fff}
+    footer{color:var(--muted); text-align:center; padding:14px}
+    a{color:var(--accent-2)}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap bar">
+      <div class="logo"><span class="dot"></span> MiniPinterest</div>
+      <div class="search">
+        <input id="q" type="search" placeholder="Поиск по заголовку… (например: природа)" />
+        <span class="hint">Ctrl/⌘+K</span>
+      </div>
+      <button class="btn" id="exportBtn" title="Экспорт в файл JSON">Экспорт</button>
+      <button class="btn" id="importBtn" title="Импорт из файла JSON">Импорт</button>
+    </div>
+  </header>
+
+  <div class="wrap panel">
+    <div class="row" id="add-form">
+      <input id="imgUrl" type="url" placeholder="Вставьте ссылку на изображение (https://…)" />
+      <input id="imgTitle" type="text" placeholder="Подпись (необязательно)" />
+      <button class="btn primary" id="addUrl">Добавить по ссылке</button>
+      <label class="upload" title="Или перетащите сюда картинки">
+        <input id="fileInput" type="file" accept="image/*" multiple hidden />
+        Загрузить с компьютера
+      </label>
+    </div>
+  </div>
+
+  <main id="grid" class="masonry" aria-live="polite"></main>
+  <div class="wrap"><div id="empty" class="empty" hidden>
+    Пусто. Добавьте первые <b>пины</b> ссылкой или загрузкой файла ↑
+    <div style="margin-top:8px">Для примера можно вставить: https://images.unsplash.com/photo-1500530855697-b586d89ba3ee</div>
+  </div></div>
+
+  <footer>Сделано как учебный проект. Изображения хранятся только в вашем браузере (LocalStorage). © 2025</footer>
+
+  <dialog id="viewer"><div class="lightbox">
+    <img id="viewerImg" alt="" />
+    <div class="lb-bar">
+      <button class="icon-btn" id="downloadBtn">Скачать</button>
+      <button class="icon-btn" id="copyBtn">Копировать ссылку</button>
+      <button class="icon-btn" id="closeBtn">Закрыть</button>
+    </div>
+  </div></dialog>
+
+  <script>
+    // ---- Utilities ----
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+    const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const storeKey = 'mini-pins-v1';
+
+    /** @type {{id:string, src:string, title?:string, liked?:boolean, w?:number, h?:number}[]} */
+    let pins = [];
+
+    function save(){ localStorage.setItem(storeKey, JSON.stringify(pins)); }
+    function load(){ try{ pins = JSON.parse(localStorage.getItem(storeKey)||'[]')||[] }catch{ pins=[] } }
+
+    function setEmptyState(){ $('#empty').hidden = pins.length !== 0 }
+
+    function pinTemplate(pin){
+      const card = document.createElement('article');
+      card.className = 'card'; card.dataset.id = pin.id;
+      const wrap = document.createElement('div'); wrap.className='thumb';
+      const img = document.createElement('img');
+      img.alt = pin.title || 'Изображение';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      // Lazy via data-src + IO
+      img.dataset.src = pin.src;
+      wrap.appendChild(img);
+
+      const actions = document.createElement('div'); actions.className='actions';
+      const like = document.createElement('button'); like.className='pill like' + (pin.liked?' active':''); like.textContent = pin.liked? 'Нравится':'Лайк';
+      like.addEventListener('click', (e)=>{ e.stopPropagation(); pin.liked=!pin.liked; like.classList.toggle('active', pin.liked); like.textContent = pin.liked? 'Нравится':'Лайк'; save(); });
+      const del = document.createElement('button'); del.className='pill'; del.textContent='Удалить';
+      del.addEventListener('click', (e)=>{ e.stopPropagation(); removePin(pin.id) });
+      actions.append(like, del); wrap.appendChild(actions);
+
+      wrap.addEventListener('click', ()=> openViewer(pin));
+
+      const meta = document.createElement('div'); meta.className='meta';
+      const title = document.createElement('div'); title.textContent = pin.title || 'Без подписи';
+      const dim = document.createElement('div'); dim.textContent = pin.w && pin.h ? `${pin.w}×${pin.h}` : '';
+      meta.append(title, dim);
+
+      card.append(wrap, meta);
+      return card;
+    }
+
+    function render(list=pins){
+      const grid = $('#grid');
+      grid.innerHTML = '';
+      list.forEach(p => grid.appendChild(pinTemplate(p)));
+      lazyImages();
+      setEmptyState();
+    }
+
+    // IntersectionObserver for lazy load
+    function lazyImages(){
+      const imgs = $$('img[data-src]');
+      const io = new IntersectionObserver((entries,obs)=>{
+        entries.forEach(en=>{
+          if(en.isIntersecting){ const img=en.target; img.src = img.dataset.src; img.removeAttribute('data-src'); obs.unobserve(img); }
+        })
+      },{rootMargin:'200px'});
+      imgs.forEach(img=>io.observe(img));
+    }
+
+    function removePin(id){ pins = pins.filter(p=>p.id!==id); save(); render(); }
+
+    async function addPinFromURL(url, title=''){
+      try{
+        const id = uid();
+        const dim = await probeImage(url);
+        pins.unshift({id, src:url, title, w:dim.w, h:dim.h});
+        save(); render();
+      }catch(e){ alert('Не удалось загрузить изображение. Проверьте ссылку.'); console.error(e); }
+    }
+
+    function addPinsFromFiles(files){
+      [...files].forEach(file=>{
+        const reader = new FileReader();
+        reader.onload = async e => {
+          const src = e.target.result;
+          const id = uid();
+          const dim = await probeImage(src);
+          pins.unshift({id, src, title:file.name.replace(/\.[^.]+$/, ''), w:dim.w, h:dim.h});
+          save(); render();
+        };
+        reader.readAsDataURL(file);
+      })
+    }
+
+    function probeImage(src){
+      return new Promise((res, rej)=>{
+        const i = new Image();
+        i.onload = () => res({w:i.naturalWidth, h:i.naturalHeight});
+        i.onerror = rej; i.src = src;
+      })
+    }
+
+    // ---- Viewer ----
+    const viewer = $('#viewer'); const viewerImg = $('#viewerImg'); let currentPin = null;
+    function openViewer(pin){ currentPin = pin; viewerImg.src = pin.src; viewer.showModal(); }
+    $('#closeBtn').addEventListener('click', ()=> viewer.close());
+    $('#downloadBtn').addEventListener('click', ()=> {
+      const a = document.createElement('a'); a.href = viewerImg.src; a.download = (currentPin?.title||'image')+'.jpg'; a.click();
+    });
+    $('#copyBtn').addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText(viewerImg.src); alert('Ссылка скопирована'); }catch{ alert('Не удалось скопировать'); }
+    })
+
+    // ---- Search ----
+    const q = $('#q');
+    function doSearch(){
+      const s = q.value.trim().toLowerCase();
+      if(!s) return render();
+      const list = pins.filter(p=> (p.title||'').toLowerCase().includes(s));
+      render(list);
+    }
+    q.addEventListener('input', doSearch);
+    window.addEventListener('keydown', (e)=>{ if((e.ctrlKey||e.metaKey)&& e.key.toLowerCase()==='k'){ e.preventDefault(); q.focus(); }});
+
+    // ---- Add form ----
+    $('#addUrl').addEventListener('click', ()=>{
+      const u = $('#imgUrl').value.trim(); const t = $('#imgTitle').value.trim();
+      if(!u) return alert('Вставьте ссылку на картинку');
+      addPinFromURL(u, t); $('#imgUrl').value=''; $('#imgTitle').value='';
+    });
+    $('.upload').addEventListener('click', ()=> $('#fileInput').click());
+    $('#fileInput').addEventListener('change', (e)=> addPinsFromFiles(e.target.files));
+
+    // Drag & drop в область формы
+    const form = $('#add-form');
+    ;['dragenter','dragover'].forEach(ev=> form.addEventListener(ev, e=>{ e.preventDefault(); form.style.outline='2px dashed #3a4556'; }));
+    ;['dragleave','drop'].forEach(ev=> form.addEventListener(ev, e=>{ e.preventDefault(); form.style.outline='none'; }));
+    form.addEventListener('drop', (e)=>{ addPinsFromFiles(e.dataTransfer.files) });
+
+    // ---- Import / Export ----
+    $('#exportBtn').addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(pins,null,2)], {type:'application/json'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mypins.json'; a.click();
+    });
+    $('#importBtn').addEventListener('click', ()=>{
+      const input = document.createElement('input'); input.type='file'; input.accept='application/json';
+      input.onchange = () => {
+        const f = input.files[0]; if(!f) return;
+        const r = new FileReader(); r.onload = () => {
+          try{ const data = JSON.parse(r.result); if(Array.isArray(data)){ pins = data; save(); render(); } else alert('Формат файла не распознан'); }
+          catch{ alert('Не удалось прочитать JSON'); }
+        }; r.readAsText(f);
+      };
+      input.click();
+    });
+
+    // ---- Boot ----
+    load(); render();
+  </script>
+</body>
+</html>
